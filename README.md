@@ -138,6 +138,7 @@ Os alunos também podem se auto-cadastrar em `http://localhost:8000/register.php
 ### Módulo 3 — Gestão de Materiais (Admin)
 
 - Cadastro de materiais com código, nome, descrição, unidade e quantidades
+- **Tipo**: `Material (consumo)` ou `Ferramentaria (devolução até 22h)` — distingue itens consumíveis de ferramentas
 - Edição inline (formulário pré-preenchido)
 - Exclusão protegida (não permite excluir materiais com solicitações vinculadas)
 - Busca por nome ou código
@@ -170,7 +171,9 @@ Os alunos também podem se auto-cadastrar em `http://localhost:8000/register.php
 
 ### Módulo 6 — Devolução e Conferência (Admin)
 
-- Lista materiais retirados pendentes de devolução
+- Lista materiais retirados pendentes de devolução, com badge de **Ferramentaria** em destaque
+- **Cobrança automática**: ao carregar a página após as 22h, qualquer ferramentaria retirada no mesmo dia e não devolvida gera uma cobrança registrada
+- Seção de **Cobranças Pendentes**: lista cobranças geradas com nome e e-mail do aluno, data e botão para quitar
 - Alerta visual para materiais com mais de 3 dias sem devolução
 - Campo de observação para registro da conferência (estado dos itens)
 - Confirmação da devolução com **reposição automática no estoque** (status: `retirada → devolvida`)
@@ -291,8 +294,8 @@ Admin acessa "Relatórios"
 
 ```
 PENDENTE → APROVADA → SEPARADA → RETIRADA → DEVOLVIDA
-                  ↘
-                REJEITADA
+                  ↘                   ↓ (ferramentaria, após 22h)
+                REJEITADA         COBRANÇA GERADA → QUITADA
 ```
 
 | Status | Significado |
@@ -303,6 +306,13 @@ PENDENTE → APROVADA → SEPARADA → RETIRADA → DEVOLVIDA
 | `retirada` | Retirado pelo aluno (estoque decrementado) |
 | `devolvida` | Devolvido e conferido (estoque reposto) |
 | `rejeitada` | Negada pelo almoxarife |
+
+### Tipos de item
+
+| Tipo | Descrição | Regra |
+|---|---|---|
+| `material` | Consumível (papel, caneta, etc.) | Sem prazo de devolução |
+| `ferramenta` | Equipamento (furadeira, chave, etc.) | Devolução até 22h do mesmo dia — cobrança automática |
 
 ---
 

@@ -10,6 +10,7 @@ $erro = '';
 
 // --- AÇÕES POST ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verificar_csrf();
     $acao  = $_POST['acao']  ?? '';
     $sol_id = (int)($_POST['sol_id'] ?? 0);
 
@@ -232,6 +233,7 @@ require_once __DIR__ . '/../includes/header.php';
             <?php if ($sol['status'] === 'pendente'): ?>
             <div style="display:flex;gap:10px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)">
               <form method="POST" action="/admin/solicitacoes.php?status=<?= urlencode($filtro_status) ?>" style="flex:1">
+                <?= csrf_field() ?>
                 <input type="hidden" name="acao"   value="aprovar" />
                 <input type="hidden" name="sol_id" value="<?= $sol['id'] ?>" />
                 <button type="submit" class="btn btn-success w-full" style="justify-content:center">
@@ -240,6 +242,7 @@ require_once __DIR__ . '/../includes/header.php';
               </form>
               <form method="POST" action="/admin/solicitacoes.php?status=<?= urlencode($filtro_status) ?>"
                     onsubmit="return confirm('Rejeitar esta solicitação?')" style="flex:1">
+                <?= csrf_field() ?>
                 <input type="hidden" name="acao"   value="rejeitar" />
                 <input type="hidden" name="sol_id" value="<?= $sol['id'] ?>" />
                 <button type="submit" class="btn btn-danger w-full" style="justify-content:center">

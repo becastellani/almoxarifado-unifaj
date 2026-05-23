@@ -1,0 +1,17 @@
+# Banco de dados (nunca commitar — contém dados reais)
+database/
+*.db
+*.sqlite
+
+# Uploads de usuários
+uploads/
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# IDE / Claude Code
+.claude/
+
+# Dependências (se algum dia usar Composer)
+vendor/

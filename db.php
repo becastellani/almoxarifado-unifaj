@@ -1,6 +1,6 @@
 <?php
 
-define('DB_PATH', __DIR__ . '/database/almoxarifado.db');
+define('DB_PATH', getenv('STORAGE_PATH') ? getenv('STORAGE_PATH') . '/almoxarifado.db' : __DIR__ . '/database/almoxarifado.db');
 
 function get_db(): PDO {
     static $pdo = null;
@@ -32,6 +32,7 @@ function criar_schema(PDO $pdo): void {
             nome            TEXT    NOT NULL,
             descricao       TEXT,
             unidade         TEXT    NOT NULL DEFAULT 'UN',
+            tipo            TEXT    NOT NULL DEFAULT 'material',
             qtd_disponivel  INTEGER NOT NULL DEFAULT 0,
             qtd_total       INTEGER NOT NULL DEFAULT 0,
             criado_em       DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -68,7 +69,26 @@ function criar_schema(PDO $pdo): void {
             FOREIGN KEY (solicitacao_id) REFERENCES solicitacoes(id),
             FOREIGN KEY (usuario_id)     REFERENCES usuarios(id)
         );
+
+        CREATE TABLE IF NOT EXISTS cobrancas (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            solicitacao_id  INTEGER NOT NULL UNIQUE,
+            usuario_id      INTEGER NOT NULL,
+            gerada_em       DATETIME DEFAULT CURRENT_TIMESTAMP,
+            status          TEXT    NOT NULL DEFAULT 'pendente',
+            observacao      TEXT,
+            FOREIGN KEY (solicitacao_id) REFERENCES solicitacoes(id),
+            FOREIGN KEY (usuario_id)     REFERENCES usuarios(id)
+        );
     ");
+
+    // Migrações: colunas adicionadas em versões posteriores
+    foreach ([
+        "ALTER TABLE materiais    ADD COLUMN tipo      TEXT NOT NULL DEFAULT 'material'",
+        "ALTER TABLE movimentacoes ADD COLUMN foto_path TEXT",
+    ] as $migration) {
+        try { $pdo->exec($migration); } catch (PDOException) { /* já existe */ }
+    }
 
     // Seed: admin padrão se não existir
     $stmt = $pdo->prepare("SELECT id FROM usuarios WHERE email = ?");

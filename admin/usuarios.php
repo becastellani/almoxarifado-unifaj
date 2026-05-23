@@ -12,6 +12,7 @@ $erro = '';
 $acao = $_POST['acao'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verificar_csrf();
 
     if ($acao === 'criar') {
         $nome  = trim($_POST['nome']  ?? '');
@@ -163,6 +164,7 @@ require_once __DIR__ . '/../includes/header.php';
       <div class="card-title"><?= $editando ? 'Editar Usuário' : 'Novo Usuário' ?></div>
 
       <form method="POST" action="/admin/usuarios.php">
+        <?= csrf_field() ?>
         <input type="hidden" name="acao" value="<?= $editando ? 'editar' : 'criar' ?>" />
         <?php if ($editando): ?>
           <input type="hidden" name="id" value="<?= $editando['id'] ?>" />
@@ -278,6 +280,7 @@ require_once __DIR__ . '/../includes/header.php';
                       <?php if (!$eh_eu): ?>
                         <!-- Bloquear/Desbloquear -->
                         <form method="POST" style="display:inline">
+                          <?= csrf_field() ?>
                           <input type="hidden" name="acao" value="toggle_aprovado" />
                           <input type="hidden" name="id"   value="<?= $u['id'] ?>" />
                           <button type="submit" class="btn btn-xs <?= $u['aprovado'] ? 'btn-ghost' : 'btn-success' ?>"
@@ -290,6 +293,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php if ($u['total_sol'] == 0): ?>
                         <form method="POST" style="display:inline"
                               onsubmit="return confirmarExclusao(<?= json_encode('Excluir usuário "' . $u['nome'] . '"?') ?>)">
+                          <?= csrf_field() ?>
                           <input type="hidden" name="acao" value="excluir" />
                           <input type="hidden" name="id"   value="<?= $u['id'] ?>" />
                           <button type="submit" class="btn btn-danger btn-xs">Excluir</button>

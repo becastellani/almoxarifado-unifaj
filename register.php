@@ -12,6 +12,7 @@ $erro    = '';
 $sucesso = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verificar_csrf();
     $nome  = trim($_POST['nome']  ?? '');
     $email = trim($_POST['email'] ?? '');
     $senha = $_POST['senha']      ?? '';
@@ -83,6 +84,7 @@ $page_title = 'Cadastro — ALMOX.SYS';
     <?php else: ?>
 
     <form method="POST" action="/register.php">
+      <?= csrf_field() ?>
       <div class="field">
         <label class="field-label">Nome completo <span class="required">*</span></label>
         <input type="text" name="nome" placeholder="Ex: João Pedro Silva"

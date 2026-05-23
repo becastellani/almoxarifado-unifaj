@@ -8,13 +8,14 @@ $db  = get_db();
 $uid = $_SESSION['usuario_id'];
 
 // Busca materiais disponíveis para o select
-$materiais = $db->query("SELECT id, codigo, nome, unidade, qtd_disponivel FROM materiais WHERE qtd_disponivel > 0 ORDER BY nome")->fetchAll();
+$materiais = $db->query("SELECT id, codigo, nome, unidade, tipo, qtd_disponivel FROM materiais WHERE qtd_disponivel > 0 ORDER BY nome")->fetchAll();
 
 $erro    = '';
 $sucesso = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $urgencia       = $_POST['urgencia']       ?? 'media';
+    verificar_csrf();
+    $urgencia       = in_array($_POST['urgencia'] ?? '', ['baixa', 'media', 'alta']) ? $_POST['urgencia'] : 'media';
     $justificativa  = trim($_POST['justificativa']  ?? '');
     $local_entrega  = trim($_POST['local_entrega']  ?? '');
     $data_necessaria= $_POST['data_necessaria'] ?? null;
@@ -86,8 +87,9 @@ window.MATERIAIS = <?= json_encode(array_map(fn($m) => [
     'codigo'  => $m['codigo'],
     'nome'    => $m['nome'],
     'unidade' => $m['unidade'],
+    'tipo'    => $m['tipo'] ?? 'material',
     'disp'    => $m['qtd_disponivel'],
-], $materiais)) ?>;
+], $materiais), JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 </script>
 
 <div class="wrapper">
@@ -116,6 +118,7 @@ window.MATERIAIS = <?= json_encode(array_map(fn($m) => [
 
   <?php if (!$sucesso): ?>
   <form method="POST" action="/aluno/solicitar.php" id="formSolicitacao">
+    <?= csrf_field() ?>
 
     <!-- Linha 1: Identificação + Fluxo -->
     <div class="grid-2 fade-up-1" style="margin-bottom:20px;align-items:start">
@@ -213,12 +216,20 @@ window.MATERIAIS = <?= json_encode(array_map(fn($m) => [
         <?php endif; ?>
       </div>
 
+      <div id="avisoFerramenta" style="display:none;background:rgba(255,170,0,.1);border:1px solid var(--warning);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:12px">
+        <p style="font-size:13px;color:var(--warning);font-weight:600;margin:0">
+          ⚠ Sua solicitação contém ferramentas — devem ser devolvidas até as 22h do mesmo dia da retirada.
+          Ferramentas não devolvidas no prazo gerarão cobrança automática.
+        </p>
+      </div>
+
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>#</th>
               <th>Material</th>
+              <th>Tipo</th>
               <th>Unidade</th>
               <th>Qtd. Solicitada</th>
               <th></th>
@@ -226,7 +237,7 @@ window.MATERIAIS = <?= json_encode(array_map(fn($m) => [
           </thead>
           <tbody id="corpoTabela">
             <tr class="empty-row" id="linhaVazia">
-              <td colspan="5">Nenhum item adicionado. Clique em "+ Adicionar Item" para começar.</td>
+              <td colspan="6">Nenhum item adicionado. Clique em "+ Adicionar Item" para começar.</td>
             </tr>
           </tbody>
         </table>

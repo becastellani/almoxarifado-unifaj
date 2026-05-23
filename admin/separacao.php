@@ -10,6 +10,7 @@ $erro = '';
 
 // --- AÇÕES POST ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verificar_csrf();
     $acao   = $_POST['acao']   ?? '';
     $sol_id = (int)($_POST['sol_id'] ?? 0);
     $obs    = trim($_POST['observacao'] ?? '');
@@ -214,6 +215,7 @@ require_once __DIR__ . '/../includes/header.php';
               <!-- Ação -->
               <div style="min-width:220px">
                 <form method="POST" action="/admin/separacao.php">
+                  <?= csrf_field() ?>
                   <input type="hidden" name="acao"   value="separar" />
                   <input type="hidden" name="sol_id" value="<?= $sol['id'] ?>" />
                   <div class="field">
@@ -319,6 +321,7 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 <form method="POST" action="/admin/separacao.php"
                       onsubmit="return confirm('Confirmar retirada por <?= htmlspecialchars(addslashes($sol['aluno_nome'])) ?>? O estoque será atualizado.')">
+                  <?= csrf_field() ?>
                   <input type="hidden" name="acao"   value="retirar" />
                   <input type="hidden" name="sol_id" value="<?= $sol['id'] ?>" />
                   <div class="field">

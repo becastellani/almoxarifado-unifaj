@@ -1,0 +1,10 @@
+.git
+.DS_Store
+database/
+iniciar.bat
+iniciar.command
+.claude/
+fly.toml
+Dockerfile
+.dockerignore
+README.md

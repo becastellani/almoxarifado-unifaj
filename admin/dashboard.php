@@ -16,7 +16,8 @@ $s = $db->query("
         (SELECT COUNT(*) FROM solicitacoes WHERE status = 'pendente')     AS pendentes,
         (SELECT COUNT(*) FROM solicitacoes WHERE status = 'aprovada')     AS aprovadas,
         (SELECT COUNT(*) FROM solicitacoes WHERE status = 'retirada')     AS retiradas,
-        (SELECT COUNT(*) FROM solicitacoes)                               AS total_sol
+        (SELECT COUNT(*) FROM solicitacoes)                               AS total_sol,
+        (SELECT COUNT(*) FROM cobrancas WHERE status = 'pendente')        AS cobrancas_pendentes
 ")->fetch();
 
 // Solicitações pendentes (últimas 8)
@@ -73,9 +74,9 @@ require_once __DIR__ . '/../includes/header.php';
       <span class="stat-sub"><?= (int)$s['sem_estoque'] ?> zerado(s)</span>
     </div>
     <div class="stat-card">
-      <span class="stat-label">Alunos cadastrados</span>
-      <span class="stat-value"><?= (int)$s['total_alunos'] ?></span>
-      <span class="stat-sub"><?= (int)$s['total_sol'] ?> sol. no total</span>
+      <span class="stat-label">Cobranças pendentes</span>
+      <span class="stat-value <?= $s['cobrancas_pendentes'] > 0 ? 'danger' : 'success' ?>"><?= (int)$s['cobrancas_pendentes'] ?></span>
+      <span class="stat-sub"><a href="/admin/devolucao.php">Ferramentaria →</a></span>
     </div>
   </div>
 

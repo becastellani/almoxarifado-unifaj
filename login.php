@@ -11,6 +11,7 @@ if (!empty($_SESSION['usuario_id'])) {
 $erro = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verificar_csrf();
     $email = trim($_POST['email'] ?? '');
     $senha = $_POST['senha'] ?? '';
 
@@ -31,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['nome']       = $user['nome'];
             $_SESSION['email']      = $user['email'];
             $_SESSION['papel']      = $user['papel'];
+            session_regenerate_id(true);
             header('Location: /index.php');
             exit;
         }
@@ -73,6 +75,7 @@ $page_title = 'Login — ALMOX.SYS';
     <?php endif; ?>
 
     <form method="POST" action="/login.php">
+      <?= csrf_field() ?>
       <div class="field">
         <label class="field-label">E-mail <span class="required">*</span></label>
         <input type="email" name="email" placeholder="seu@email.com"
@@ -93,10 +96,6 @@ $page_title = 'Login — ALMOX.SYS';
       Não tem conta? <a href="/register.php">Criar cadastro</a>
     </div>
 
-    <div style="margin-top:20px;padding:12px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border)">
-      <p class="mono" style="font-size:10px;color:var(--text-muted);margin-bottom:6px">ACESSO PADRÃO (dev)</p>
-      <p style="font-size:12px;color:var(--text-muted)">Admin: <span class="mono" style="color:var(--accent)">admin@almox.local</span> / <span class="mono" style="color:var(--accent)">admin123</span></p>
-    </div>
 
   </div>
 

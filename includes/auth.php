@@ -39,3 +39,24 @@ function eh_admin(): bool {
     if (session_status() === PHP_SESSION_NONE) session_start();
     return ($_SESSION['papel'] ?? '') === 'admin';
 }
+
+function csrf_token(): string {
+    if (session_status() === PHP_SESSION_NONE) session_start();
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function csrf_field(): string {
+    return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars(csrf_token()) . '" />';
+}
+
+function verificar_csrf(): void {
+    if (session_status() === PHP_SESSION_NONE) session_start();
+    $token = $_POST['csrf_token'] ?? '';
+    if (empty($token) || !hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
+        http_response_code(403);
+        die('Token inválido. Recarregue a página e tente novamente.');
+    }
+}

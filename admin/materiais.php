@@ -12,12 +12,14 @@ $erro = '';
 $acao = $_POST['acao'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verificar_csrf();
 
     if ($acao === 'criar' || $acao === 'editar') {
         $codigo = strtoupper(trim($_POST['codigo'] ?? ''));
         $nome   = trim($_POST['nome']   ?? '');
         $desc   = trim($_POST['descricao'] ?? '');
         $unid   = trim($_POST['unidade']   ?? 'UN');
+        $tipo   = in_array($_POST['tipo'] ?? '', ['material', 'ferramenta']) ? $_POST['tipo'] : 'material';
         $qtd_t  = max(0, (int)($_POST['qtd_total']      ?? 0));
         $qtd_d  = max(0, (int)($_POST['qtd_disponivel'] ?? 0));
 
@@ -33,8 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($chk->fetch()) {
                     $erro = "Código \"$codigo\" já existe.";
                 } else {
-                    $db->prepare("INSERT INTO materiais (codigo, nome, descricao, unidade, qtd_total, qtd_disponivel) VALUES (?,?,?,?,?,?)")
-                       ->execute([$codigo, $nome, $desc, $unid, $qtd_t, $qtd_d]);
+                    $db->prepare("INSERT INTO materiais (codigo, nome, descricao, unidade, tipo, qtd_total, qtd_disponivel) VALUES (?,?,?,?,?,?,?)")
+                       ->execute([$codigo, $nome, $desc, $unid, $tipo, $qtd_t, $qtd_d]);
                     $msg = "Material \"$nome\" cadastrado com sucesso.";
                 }
             } else {
@@ -44,8 +46,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($chk->fetch()) {
                     $erro = "Código \"$codigo\" já existe em outro material.";
                 } else {
-                    $db->prepare("UPDATE materiais SET codigo=?, nome=?, descricao=?, unidade=?, qtd_total=?, qtd_disponivel=? WHERE id=?")
-                       ->execute([$codigo, $nome, $desc, $unid, $qtd_t, $qtd_d, $id]);
+                    $db->prepare("UPDATE materiais SET codigo=?, nome=?, descricao=?, unidade=?, tipo=?, qtd_total=?, qtd_disponivel=? WHERE id=?")
+                       ->execute([$codigo, $nome, $desc, $unid, $tipo, $qtd_t, $qtd_d, $id]);
                     $msg = "Material atualizado com sucesso.";
                 }
             }
@@ -105,10 +107,26 @@ require_once __DIR__ . '/../includes/header.php';
       <div class="card-title"><?= $editando ? 'Editar Material' : 'Novo Material' ?></div>
 
       <form method="POST" action="/admin/materiais.php">
+        <?= csrf_field() ?>
         <input type="hidden" name="acao" value="<?= $editando ? 'editar' : 'criar' ?>" />
         <?php if ($editando): ?>
           <input type="hidden" name="id" value="<?= $editando['id'] ?>" />
         <?php endif; ?>
+
+        <div class="field">
+          <label class="field-label">Tipo <span class="required">*</span></label>
+          <?php $tipo_atual = $editando['tipo'] ?? $_POST['tipo'] ?? 'material'; ?>
+          <div class="radio-group">
+            <label class="radio-option" style="<?= $tipo_atual === 'material' ? 'border-color:var(--accent);background:var(--accent-dim)' : '' ?>">
+              <input type="radio" name="tipo" value="material" <?= $tipo_atual === 'material' ? 'checked' : '' ?> onchange="atualizarTipo(this)" />
+              <span class="radio-label"><span class="dot"></span>Material (consumo)</span>
+            </label>
+            <label class="radio-option" style="<?= $tipo_atual === 'ferramenta' ? 'border-color:var(--warning);background:rgba(255,170,0,.08)' : '' ?>">
+              <input type="radio" name="tipo" value="ferramenta" <?= $tipo_atual === 'ferramenta' ? 'checked' : '' ?> onchange="atualizarTipo(this)" />
+              <span class="radio-label"><span class="dot"></span>Ferramentaria (devolução até 22h)</span>
+            </label>
+          </div>
+        </div>
 
         <div class="field-row">
           <div class="field">
@@ -183,6 +201,7 @@ require_once __DIR__ . '/../includes/header.php';
             <thead>
               <tr>
                 <th>Material</th>
+                <th>Tipo</th>
                 <th>Cód.</th>
                 <th>Un.</th>
                 <th style="text-align:center">Disp.</th>
@@ -193,17 +212,25 @@ require_once __DIR__ . '/../includes/header.php';
             <tbody>
               <?php if (empty($materiais)): ?>
                 <tr class="empty-row">
-                  <td colspan="6"><?= $busca ? 'Nenhum material encontrado.' : 'Nenhum material cadastrado ainda.' ?></td>
+                  <td colspan="7"><?= $busca ? 'Nenhum material encontrado.' : 'Nenhum material cadastrado ainda.' ?></td>
                 </tr>
               <?php else: ?>
                 <?php foreach ($materiais as $m):
                   $cor_qtd = $m['qtd_disponivel'] == 0 ? 'var(--danger)' : ($m['qtd_disponivel'] <= 3 ? 'var(--warning)' : 'var(--success)');
+                  $e_ferramenta = ($m['tipo'] ?? 'material') === 'ferramenta';
                 ?>
                 <tr <?= $editando && $editando['id'] == $m['id'] ? 'style="background:var(--accent-dim)"' : '' ?>>
                   <td>
                     <span style="font-size:13px;font-weight:600"><?= htmlspecialchars($m['nome']) ?></span>
                     <?php if ($m['descricao']): ?>
                       <br><span style="font-size:11px;color:var(--text-muted)"><?= htmlspecialchars(mb_substr($m['descricao'], 0, 40)) ?>...</span>
+                    <?php endif; ?>
+                  </td>
+                  <td>
+                    <?php if ($e_ferramenta): ?>
+                      <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(255,170,0,.12);color:var(--warning);border:1px solid var(--warning);white-space:nowrap">Ferramentaria</span>
+                    <?php else: ?>
+                      <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent);white-space:nowrap">Material</span>
                     <?php endif; ?>
                   </td>
                   <td class="mono" style="font-size:11px;color:var(--text-muted)"><?= htmlspecialchars($m['codigo']) ?></td>
@@ -215,6 +242,7 @@ require_once __DIR__ . '/../includes/header.php';
                       <a href="/admin/materiais.php?editar=<?= $m['id'] ?>" class="btn btn-secondary btn-xs">Editar</a>
                       <form method="POST" action="/admin/materiais.php" style="display:inline"
                             onsubmit="return confirmarExclusao('Excluir \"<?= htmlspecialchars(addslashes($m['nome'])) ?>\"?')">
+                        <?= csrf_field() ?>
                         <input type="hidden" name="acao" value="excluir" />
                         <input type="hidden" name="id" value="<?= $m['id'] ?>" />
                         <button type="submit" class="btn btn-danger btn-xs">Excluir</button>
@@ -237,5 +265,20 @@ require_once __DIR__ . '/../includes/header.php';
   </div>
 
 </div>
+
+<script>
+function atualizarTipo(radio) {
+  document.querySelectorAll('input[name="tipo"]').forEach(r => {
+    const lbl = r.closest('label');
+    if (r.value === 'ferramenta') {
+      lbl.style.borderColor = r.checked ? 'var(--warning)' : '';
+      lbl.style.background  = r.checked ? 'rgba(255,170,0,.08)' : '';
+    } else {
+      lbl.style.borderColor = r.checked ? 'var(--accent)' : '';
+      lbl.style.background  = r.checked ? 'var(--accent-dim)' : '';
+    }
+  });
+}
+</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

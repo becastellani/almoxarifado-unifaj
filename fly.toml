@@ -1,0 +1,23 @@
+# Troque o nome do app para algo único antes de rodar `fly launch`
+app            = "almox-sys"
+primary_region = "gru"
+
+[build]
+
+[env]
+  STORAGE_PATH = "/var/www/storage"
+
+[[mounts]]
+  source      = "almox_storage"
+  destination = "/var/www/storage"
+
+[http_service]
+  internal_port        = 80
+  force_https          = true
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 1
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "256mb"

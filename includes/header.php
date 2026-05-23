@@ -22,7 +22,7 @@ $base = '';
 <header class="topbar">
   <div class="topbar-left">
     <a href="<?= $papel === 'admin' ? '/admin/dashboard.php' : '/aluno/dashboard.php' ?>" class="logo">
-      <div class="logo-icon"></div>
+      <img src="/logo.png" alt="ALMOX.SYS" style="height:40px;width:40px;object-fit:contain;flex-shrink:0" />
       <span class="logo-text">ALMOX<span class="logo-dot">.</span>SYS</span>
     </a>
 

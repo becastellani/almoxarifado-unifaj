@@ -17,10 +17,32 @@ if ($filtro_status && in_array($filtro_status, ['pendente','aprovada','rejeitada
     $params[] = $filtro_status;
 }
 
+// Handler: aluno avisa devolução de ferramentaria
+$aviso_msg = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['acao'] ?? '') === 'avisar_devolucao') {
+    verificar_csrf();
+    $sol_id_av = (int)($_POST['sol_id'] ?? 0);
+    // Verifica que é do próprio aluno e está retirada
+    $chk = $db->prepare("SELECT id FROM solicitacoes WHERE id = ? AND usuario_id = ? AND status = 'retirada'");
+    $chk->execute([$sol_id_av, $uid]);
+    if ($chk->fetch()) {
+        // Garante que não existe aviso duplicado
+        $dup = $db->prepare("SELECT id FROM movimentacoes WHERE solicitacao_id = ? AND tipo = 'aviso_devolucao'");
+        $dup->execute([$sol_id_av]);
+        if (!$dup->fetch()) {
+            $db->prepare("INSERT INTO movimentacoes (solicitacao_id, tipo, usuario_id, observacao) VALUES (?, 'aviso_devolucao', ?, 'Aluno avisou que está devolvendo')")
+               ->execute([$sol_id_av, $uid]);
+        }
+        $aviso_msg = $sol_id_av;
+    }
+}
+
 $solicitacoes = $db->prepare("
     SELECT s.*,
            COUNT(DISTINCT i.id) AS qtd_itens,
-           GROUP_CONCAT(m.nome, ', ') AS materiais_nomes
+           GROUP_CONCAT(m.nome, ', ') AS materiais_nomes,
+           MAX(CASE WHEN m.tipo = 'ferramenta' THEN 1 ELSE 0 END) AS tem_ferramenta,
+           EXISTS (SELECT 1 FROM movimentacoes mv WHERE mv.solicitacao_id = s.id AND mv.tipo = 'aviso_devolucao') AS avisou_devolucao
     FROM solicitacoes s
     LEFT JOIN itens_solicitacao i ON i.solicitacao_id = s.id
     LEFT JOIN materiais m ON m.id = i.material_id
@@ -54,6 +76,12 @@ require_once __DIR__ . '/../includes/header.php';
     <h1 class="page-title">Minhas <span>Solicitações</span></h1>
     <p class="page-subtitle">Acompanhe o status de todas as suas solicitações de material.</p>
   </div>
+
+  <?php if ($aviso_msg): ?>
+    <div class="alert alert-success fade-up">
+      ✓ Aviso enviado para a solicitação <strong>#<?= str_pad($aviso_msg, 4, '0', STR_PAD_LEFT) ?></strong>. O almoxarife será notificado para confirmar a devolução.
+    </div>
+  <?php endif; ?>
 
   <!-- Filtros + ação -->
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px" class="fade-up-1">
@@ -92,7 +120,7 @@ require_once __DIR__ . '/../includes/header.php';
             <th>Itens</th>
             <th>Urgência</th>
             <th>Status</th>
-            <th>Detalhe</th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -113,15 +141,36 @@ require_once __DIR__ . '/../includes/header.php';
                 <?= date('d/m/Y', strtotime($sol['criado_em'])) ?><br>
                 <span class="text-muted" style="font-size:11px"><?= date('H:i', strtotime($sol['criado_em'])) ?></span>
               </td>
-              <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
                   title="<?= htmlspecialchars($sol['materiais_nomes'] ?? '') ?>">
                 <?= htmlspecialchars($sol['materiais_nomes'] ?? '—') ?>
+                <?php if ($sol['tem_ferramenta']): ?>
+                  <br><span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(245,160,32,.12);color:var(--warning);border:1px solid var(--warning)">Ferramentaria</span>
+                <?php endif; ?>
               </td>
               <td class="mono text-center"><?= (int)$sol['qtd_itens'] ?></td>
               <td><span class="badge badge-<?= $sol['urgencia'] ?>"><?= ucfirst($sol['urgencia']) ?></span></td>
               <td><span class="badge badge-<?= $sol['status'] ?>"><?= ucfirst($sol['status']) ?></span></td>
               <td>
-                <button onclick="verDetalhe(<?= $sol['id'] ?>)" class="btn btn-ghost btn-xs">Ver</button>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button onclick="verDetalhe(<?= $sol['id'] ?>)" class="btn btn-ghost btn-xs">Ver</button>
+                  <?php if ($sol['status'] === 'retirada' && $sol['tem_ferramenta']): ?>
+                    <?php if ($sol['avisou_devolucao']): ?>
+                      <span style="font-size:10px;color:var(--success);font-weight:600;padding:4px 8px;border:1px solid var(--success);border-radius:4px;white-space:nowrap">✔ Aviso enviado</span>
+                    <?php else: ?>
+                      <form method="POST" action="/aluno/minhas-solicitacoes.php" style="display:inline">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="acao"   value="avisar_devolucao" />
+                        <input type="hidden" name="sol_id" value="<?= $sol['id'] ?>" />
+                        <button type="submit" class="btn btn-xs"
+                                style="background:var(--success-dim);border:1px solid var(--success);color:var(--success)"
+                                onclick="return confirm('Avisar o almoxarife que você está devolvendo os itens desta solicitação?')">
+                          Avisar Devolução
+                        </button>
+                      </form>
+                    <?php endif; ?>
+                  <?php endif; ?>
+                </div>
               </td>
             </tr>
             <?php endforeach; ?>
@@ -143,7 +192,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <!-- Dados das solicitações para modal -->
 <script>
-const SOLICITACOES = <?= json_encode(array_column($solicitacoes, null, 'id')) ?>;
+const SOLICITACOES = <?= json_encode(array_column($solicitacoes, null, 'id'), JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
 const STATUS_LABEL = {
   pendente:  'Aguardando análise',
@@ -153,6 +202,16 @@ const STATUS_LABEL = {
   retirada:  'Retirada — pendente devolução',
   devolvida: 'Concluída',
 };
+
+function escHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
 
 function verDetalhe(id) {
   const s = SOLICITACOES[id];
@@ -171,31 +230,31 @@ function verDetalhe(id) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
         <p style="font-size:10px;color:var(--text-muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Status</p>
-        <span class="badge badge-${s.status}">${s.status.charAt(0).toUpperCase() + s.status.slice(1)}</span>
+        <span class="badge badge-${escHtml(s.status)}">${escHtml(s.status.charAt(0).toUpperCase() + s.status.slice(1))}</span>
       </div>
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
         <p style="font-size:10px;color:var(--text-muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Urgência</p>
-        <span style="font-weight:700;color:${urgColor[s.urgencia]}">${s.urgencia.charAt(0).toUpperCase() + s.urgencia.slice(1)}</span>
+        <span style="font-weight:700;color:${urgColor[s.urgencia] || 'var(--text)'}">${escHtml(s.urgencia.charAt(0).toUpperCase() + s.urgencia.slice(1))}</span>
       </div>
     </div>
     ${s.justificativa ? `
     <div style="margin-bottom:16px">
       <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Justificativa</p>
-      <p style="font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">${s.justificativa}</p>
+      <p style="font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">${escHtml(s.justificativa)}</p>
     </div>` : ''}
     ${s.local_entrega ? `
     <div style="margin-bottom:16px">
       <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Local de entrega</p>
-      <p style="font-size:13px">${s.local_entrega}</p>
+      <p style="font-size:13px">${escHtml(s.local_entrega)}</p>
     </div>` : ''}
     ${s.data_necessaria ? `
     <div style="margin-bottom:16px">
       <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Data necessária</p>
-      <p style="font-size:13px">${s.data_necessaria}</p>
+      <p style="font-size:13px">${escHtml(s.data_necessaria)}</p>
     </div>` : ''}
     <div>
       <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Materiais</p>
-      <p style="font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">${s.materiais_nomes || '—'}</p>
+      <p style="font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">${escHtml(s.materiais_nomes) || '—'}</p>
     </div>
     <p style="font-size:11px;color:var(--text-muted);margin-top:16px;font-family:var(--mono)">
       Criado em: ${new Date(s.criado_em).toLocaleString('pt-BR')}

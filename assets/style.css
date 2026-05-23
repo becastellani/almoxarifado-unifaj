@@ -6,24 +6,24 @@
 /* ---------- TOKENS ---------- */
 :root,
 [data-theme="dark"] {
-  --bg:           #0f1117;
-  --surface:      #181c26;
-  --surface2:     #1e2333;
-  --border:       #2a3044;
-  --accent:       #f5a623;
-  --accent-hover: #f7b84e;
-  --accent-dim:   rgba(245,166,35,.12);
-  --accent-glow:  rgba(245,166,35,.25);
-  --danger:       #e8460a;
-  --danger-dim:   rgba(232,70,10,.12);
+  --bg:           #060e1f;
+  --surface:      #0c1a3e;
+  --surface2:     #122254;
+  --border:       #1e3578;
+  --accent:       #f5c200;
+  --accent-hover: #ffd800;
+  --accent-dim:   rgba(245,194,0,.13);
+  --accent-glow:  rgba(245,194,0,.30);
+  --danger:       #e84040;
+  --danger-dim:   rgba(232,64,64,.13);
   --success:      #2dd4a0;
   --success-dim:  rgba(45,212,160,.12);
-  --warning:      #f5a623;
-  --text:         #e4e8f0;
-  --text-muted:   #7a8299;
-  --text-subtle:  #4a5568;
-  --shadow:       0 4px 24px rgba(0,0,0,.4);
-  --shadow-sm:    0 2px 8px rgba(0,0,0,.3);
+  --warning:      #f5a020;
+  --text:         #e8edf8;
+  --text-muted:   #7a90b8;
+  --text-subtle:  #3d5280;
+  --shadow:       0 4px 28px rgba(0,0,0,.6);
+  --shadow-sm:    0 2px 10px rgba(0,0,0,.45);
   --mono:         'IBM Plex Mono', monospace;
   --sans:         'IBM Plex Sans', sans-serif;
   --radius:       6px;
@@ -31,24 +31,24 @@
 }
 
 [data-theme="light"] {
-  --bg:           #f0f2f8;
+  --bg:           #dce5f5;
   --surface:      #ffffff;
-  --surface2:     #f5f6fa;
-  --border:       #dde1ef;
-  --accent:       #c8850f;
-  --accent-hover: #d4920f;
-  --accent-dim:   rgba(200,133,15,.10);
-  --accent-glow:  rgba(200,133,15,.20);
-  --danger:       #cc3a08;
-  --danger-dim:   rgba(204,58,8,.10);
+  --surface2:     #eef2fc;
+  --border:       #c0cfe8;
+  --accent:       #c89800;
+  --accent-hover: #d4a800;
+  --accent-dim:   rgba(200,152,0,.10);
+  --accent-glow:  rgba(200,152,0,.22);
+  --danger:       #cc2e2e;
+  --danger-dim:   rgba(204,46,46,.10);
   --success:      #1a9e76;
   --success-dim:  rgba(26,158,118,.10);
-  --warning:      #c8850f;
-  --text:         #1a1e2e;
-  --text-muted:   #5a6278;
-  --text-subtle:  #9aa0b4;
-  --shadow:       0 4px 24px rgba(0,0,0,.08);
-  --shadow-sm:    0 2px 8px rgba(0,0,0,.06);
+  --warning:      #c87800;
+  --text:         #0c1a3e;
+  --text-muted:   #4a6090;
+  --text-subtle:  #8a9ab8;
+  --shadow:       0 4px 24px rgba(12,26,62,.12);
+  --shadow-sm:    0 2px 8px rgba(12,26,62,.08);
 }
 
 /* ---------- RESET ---------- */
@@ -65,8 +65,8 @@ body {
   flex-direction: column;
   transition: background .25s, color .25s;
   background-image:
-    radial-gradient(ellipse at 80% 0%, rgba(245,166,35,.04) 0%, transparent 55%),
-    radial-gradient(ellipse at 0% 100%, rgba(232,70,10,.03) 0%, transparent 45%);
+    radial-gradient(ellipse at 80% 0%, rgba(245,194,0,.05) 0%, transparent 55%),
+    radial-gradient(ellipse at 0% 100%, rgba(12,26,62,.5) 0%, transparent 45%);
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -77,15 +77,15 @@ a:hover { text-decoration: underline; }
   position: sticky;
   top: 0;
   z-index: 200;
-  height: 60px;
+  height: 62px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--accent);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 28px;
   gap: 24px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 2px 16px rgba(245,194,0,.10), var(--shadow-sm);
   transition: background .25s, border-color .25s;
 }
 
@@ -503,7 +503,7 @@ textarea { resize: vertical; min-height: 90px; }
   cursor: pointer;
   transition: all .2s;
 }
-.btn-add:hover { background: rgba(245,166,35,.2); }
+.btn-add:hover { background: rgba(245,194,0,.22); }
 
 .btn-remove {
   background: none;
