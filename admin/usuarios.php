@@ -8,6 +8,12 @@ $db   = get_db();
 $msg  = '';
 $erro = '';
 
+// Flash de sucesso após redirect
+if (!empty($_SESSION['flash_ok'])) {
+    $msg = $_SESSION['flash_ok'];
+    unset($_SESSION['flash_ok']);
+}
+
 // --- AÇÕES POST ---
 $acao = $_POST['acao'] ?? '';
 
@@ -36,7 +42,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $db->prepare("INSERT INTO usuarios (nome, email, senha_hash, papel, aprovado) VALUES (?, ?, ?, ?, 1)")
                    ->execute([$nome, $email, password_hash($senha, PASSWORD_DEFAULT), $papel]);
-                $msg = "Usuário \"$nome\" criado com sucesso.";
+                $_SESSION['flash_ok'] = "Usuário \"$nome\" criado com sucesso.";
+                header('Location: /admin/usuarios.php');
+                exit;
             }
         }
     }
@@ -50,7 +58,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!in_array($papel, ['aluno', 'admin'])) $papel = 'aluno';
 
-        // Impede editar o próprio papel/e-mail (segurança básica)
         if ($id === (int)$_SESSION['usuario_id'] && $papel !== 'admin') {
             $erro = 'Você não pode rebaixar sua própria conta.';
         } elseif (!$nome || !$email) {
@@ -62,17 +69,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $chk->execute([$email, $id]);
             if ($chk->fetch()) {
                 $erro = "E-mail já usado por outro usuário.";
+            } elseif ($nova_senha && strlen($nova_senha) < 6) {
+                $erro = 'Nova senha deve ter pelo menos 6 caracteres.';
             } else {
-                if ($nova_senha && strlen($nova_senha) >= 6) {
+                if ($nova_senha) {
                     $db->prepare("UPDATE usuarios SET nome=?, email=?, papel=?, senha_hash=? WHERE id=?")
                        ->execute([$nome, $email, $papel, password_hash($nova_senha, PASSWORD_DEFAULT), $id]);
-                } elseif ($nova_senha && strlen($nova_senha) < 6) {
-                    $erro = 'Nova senha deve ter pelo menos 6 caracteres.';
                 } else {
                     $db->prepare("UPDATE usuarios SET nome=?, email=?, papel=? WHERE id=?")
                        ->execute([$nome, $email, $papel, $id]);
                 }
-                if (!$erro) $msg = "Usuário atualizado com sucesso.";
+                $_SESSION['flash_ok'] = "Usuário \"$nome\" atualizado com sucesso.";
+                header('Location: /admin/usuarios.php');
+                exit;
             }
         }
     }
@@ -84,7 +93,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $db->prepare("UPDATE usuarios SET aprovado = 1 - aprovado WHERE id = ?")
                ->execute([$id]);
-            $msg = 'Status do usuário atualizado.';
+            $_SESSION['flash_ok'] = 'Status do usuário atualizado.';
+            header('Location: /admin/usuarios.php');
+            exit;
         }
     }
 
@@ -99,7 +110,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $erro = 'Este usuário possui solicitações e não pode ser excluído.';
             } else {
                 $db->prepare("DELETE FROM usuarios WHERE id = ?")->execute([$id]);
-                $msg = 'Usuário excluído.';
+                $_SESSION['flash_ok'] = 'Usuário excluído.';
+                header('Location: /admin/usuarios.php');
+                exit;
             }
         }
     }

@@ -1,5 +1,4 @@
-# Troque o nome do app para algo único antes de rodar `fly launch`
-app            = "almox-sys"
+app            = "almox-sys-unifaj-2026"
 primary_region = "gru"
 
 [build]

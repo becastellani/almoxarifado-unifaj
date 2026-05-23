@@ -5,8 +5,14 @@ require_once __DIR__ . '/../includes/auth.php';
 requer_admin();
 
 $db  = get_db();
-$msg = '';
+$msg  = '';
 $erro = '';
+
+// Flash de sucesso após redirect
+if (!empty($_SESSION['flash_ok'])) {
+    $msg = $_SESSION['flash_ok'];
+    unset($_SESSION['flash_ok']);
+}
 
 // --- AÇÕES POST ---
 $acao = $_POST['acao'] ?? '';
@@ -29,7 +35,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $erro = 'Quantidade disponível não pode ser maior que a total.';
         } else {
             if ($acao === 'criar') {
-                // Checa código duplicado
                 $chk = $db->prepare("SELECT id FROM materiais WHERE codigo = ?");
                 $chk->execute([$codigo]);
                 if ($chk->fetch()) {
@@ -37,7 +42,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $db->prepare("INSERT INTO materiais (codigo, nome, descricao, unidade, tipo, qtd_total, qtd_disponivel) VALUES (?,?,?,?,?,?,?)")
                        ->execute([$codigo, $nome, $desc, $unid, $tipo, $qtd_t, $qtd_d]);
-                    $msg = "Material \"$nome\" cadastrado com sucesso.";
+                    $_SESSION['flash_ok'] = "Material \"$nome\" cadastrado com sucesso.";
+                    header('Location: /admin/materiais.php');
+                    exit;
                 }
             } else {
                 $id = (int)($_POST['id'] ?? 0);
@@ -48,7 +55,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $db->prepare("UPDATE materiais SET codigo=?, nome=?, descricao=?, unidade=?, tipo=?, qtd_total=?, qtd_disponivel=? WHERE id=?")
                        ->execute([$codigo, $nome, $desc, $unid, $tipo, $qtd_t, $qtd_d, $id]);
-                    $msg = "Material atualizado com sucesso.";
+                    $_SESSION['flash_ok'] = "Material \"$nome\" atualizado com sucesso.";
+                    header('Location: /admin/materiais.php');
+                    exit;
                 }
             }
         }
@@ -56,14 +65,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($acao === 'excluir') {
         $id = (int)($_POST['id'] ?? 0);
-        // Não exclui se houver itens vinculados
         $uso = $db->prepare("SELECT COUNT(*) FROM itens_solicitacao WHERE material_id = ?");
         $uso->execute([$id]);
         if ($uso->fetchColumn() > 0) {
             $erro = 'Este material possui solicitações vinculadas e não pode ser excluído.';
         } else {
             $db->prepare("DELETE FROM materiais WHERE id = ?")->execute([$id]);
-            $msg = 'Material excluído.';
+            $_SESSION['flash_ok'] = 'Material excluído.';
+            header('Location: /admin/materiais.php');
+            exit;
         }
     }
 }
