@@ -2,7 +2,8 @@ FROM php:8.3-apache
 
 RUN apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && a2enmod rewrite \
+    && a2dismod mpm_event mpm_worker 2>/dev/null || true \
+    && a2enmod mpm_prefork rewrite \
     && docker-php-ext-install pdo_sqlite
 
 COPY .docker/apache.conf   /etc/apache2/sites-available/000-default.conf
