@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../includes/auth.php';
 requer_aluno();
@@ -52,6 +52,26 @@ $solicitacoes = $db->prepare("
 ");
 $solicitacoes->execute($params);
 $solicitacoes = $solicitacoes->fetchAll();
+
+// Carrega itens de cada solicitação (sem N+1)
+$itens_por_sol = [];
+if ($solicitacoes) {
+    $sol_ids = array_column($solicitacoes, 'id');
+    $ph_sol  = implode(',', array_fill(0, count($sol_ids), '?'));
+    $rows    = $db->prepare("
+        SELECT i.solicitacao_id, i.id AS item_id, i.qtd_solicitada, i.qtd_devolvida,
+               i.item_fechado, i.status_item, i.motivo_recusa,
+               m.nome AS mat_nome, m.unidade, m.tipo AS mat_tipo
+        FROM itens_solicitacao i
+        JOIN materiais m ON m.id = i.material_id
+        WHERE i.solicitacao_id IN ($ph_sol)
+        ORDER BY m.nome
+    ");
+    $rows->execute($sol_ids);
+    foreach ($rows->fetchAll() as $row) {
+        $itens_por_sol[$row['solicitacao_id']][] = $row;
+    }
+}
 
 // Labels legíveis
 $status_label = [
@@ -192,7 +212,13 @@ require_once __DIR__ . '/../includes/header.php';
 
 <!-- Dados das solicitações para modal -->
 <script>
-const SOLICITACOES = <?= json_encode(array_column($solicitacoes, null, 'id'), JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+<?php
+$sol_com_itens = array_map(function($sol) use ($itens_por_sol) {
+    $sol['itens'] = $itens_por_sol[$sol['id']] ?? [];
+    return $sol;
+}, $solicitacoes);
+?>
+const SOLICITACOES = <?= json_encode(array_column($sol_com_itens, null, 'id'), JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
 const STATUS_LABEL = {
   pendente:  'Aguardando análise',
@@ -217,10 +243,43 @@ function verDetalhe(id) {
   const s = SOLICITACOES[id];
   if (!s) return;
 
-  const overlay = document.getElementById('modalOverlay');
-  const box     = document.getElementById('modalConteudo');
-
+  const overlay  = document.getElementById('modalOverlay');
+  const box      = document.getElementById('modalConteudo');
   const urgColor = { baixa: 'var(--success)', media: 'var(--accent)', alta: 'var(--danger)' };
+
+  // Tabela de itens
+  let itensHtml = '';
+  if (s.itens && s.itens.length > 0) {
+    const linhas = s.itens.map(it => {
+      const recusado = it.status_item === 'recusado';
+      const aprovado = it.status_item === 'aprovado' || !it.status_item;
+      let statusBadge = '';
+      if (recusado) {
+        statusBadge = `<br><span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:var(--danger-dim);color:var(--danger);border:1px solid var(--danger)">Recusado${it.motivo_recusa ? ': ' + escHtml(it.motivo_recusa) : ''}</span>`;
+      } else if (it.item_fechado) {
+        statusBadge = `<br><span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(0,200,100,.1);color:var(--success);border:1px solid var(--success)">Baixa direta</span>`;
+      } else if (it.qtd_devolvida > 0) {
+        statusBadge = `<br><span style="font-size:9px;color:var(--success)">Devolvido: ${it.qtd_devolvida}/${it.qtd_solicitada}</span>`;
+      }
+      return `<tr style="${recusado ? 'opacity:.55;' : ''}">
+        <td style="font-size:12px;font-weight:600">${escHtml(it.mat_nome)}${statusBadge}</td>
+        <td style="text-align:center;font-weight:700;font-size:12px">${escHtml(String(it.qtd_solicitada))} ${escHtml(it.unidade)}</td>
+      </tr>`;
+    }).join('');
+    itensHtml = `
+    <div style="margin-bottom:16px">
+      <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Itens Solicitados</p>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;font-size:10px;color:var(--text-muted);padding:4px 0;font-weight:600">Material</th>
+            <th style="text-align:center;font-size:10px;color:var(--text-muted);padding:4px 0;font-weight:600">Qtd.</th>
+          </tr>
+        </thead>
+        <tbody>${linhas}</tbody>
+      </table>
+    </div>`;
+  }
 
   box.innerHTML = `
     <div style="margin-bottom:20px">
@@ -230,32 +289,34 @@ function verDetalhe(id) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
         <p style="font-size:10px;color:var(--text-muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Status</p>
-        <span class="badge badge-${escHtml(s.status)}">${escHtml(s.status.charAt(0).toUpperCase() + s.status.slice(1))}</span>
+        <span class="badge badge-${escHtml(s.status)}">${escHtml(STATUS_LABEL[s.status] || s.status)}</span>
       </div>
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
         <p style="font-size:10px;color:var(--text-muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Urgência</p>
         <span style="font-weight:700;color:${urgColor[s.urgencia] || 'var(--text)'}">${escHtml(s.urgencia.charAt(0).toUpperCase() + s.urgencia.slice(1))}</span>
       </div>
     </div>
+    ${itensHtml}
     ${s.justificativa ? `
-    <div style="margin-bottom:16px">
+    <div style="margin-bottom:14px">
       <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Justificativa</p>
       <p style="font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">${escHtml(s.justificativa)}</p>
     </div>` : ''}
+    ${s.observacao_requisitante ? `
+    <div style="margin-bottom:14px">
+      <p style="font-size:11px;color:var(--warning);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Observações</p>
+      <p style="font-size:13px;background:rgba(255,170,0,.06);border:1px solid var(--warning);border-radius:var(--radius-sm);padding:12px">${escHtml(s.observacao_requisitante)}</p>
+    </div>` : ''}
     ${s.local_entrega ? `
-    <div style="margin-bottom:16px">
+    <div style="margin-bottom:12px">
       <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Local de entrega</p>
       <p style="font-size:13px">${escHtml(s.local_entrega)}</p>
     </div>` : ''}
     ${s.data_necessaria ? `
-    <div style="margin-bottom:16px">
+    <div style="margin-bottom:12px">
       <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Data necessária</p>
       <p style="font-size:13px">${escHtml(s.data_necessaria)}</p>
     </div>` : ''}
-    <div>
-      <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Materiais</p>
-      <p style="font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">${escHtml(s.materiais_nomes) || '—'}</p>
-    </div>
     <p style="font-size:11px;color:var(--text-muted);margin-top:16px;font-family:var(--mono)">
       Criado em: ${new Date(s.criado_em).toLocaleString('pt-BR')}
     </p>

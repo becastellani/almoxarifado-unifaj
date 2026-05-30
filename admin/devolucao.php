@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../includes/auth.php';
 requer_admin();
@@ -34,14 +34,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$sol || $sol['status'] !== 'retirada') {
         $erro = 'Solicitação inválida ou não está com status "retirada".';
     } else {
-        $itens = $db->prepare("SELECT * FROM itens_solicitacao WHERE solicitacao_id = ?");
-        $itens->execute([$sol_id]);
-        $itens = $itens->fetchAll();
-
         // Upload de foto (opcional)
         $foto_path = null;
         if (!empty($_FILES['foto']['tmp_name'])) {
-            $ext  = strtolower(pathinfo($_FILES['foto']['name'], PATHINFO_EXTENSION));
+            $ext     = strtolower(pathinfo($_FILES['foto']['name'], PATHINFO_EXTENSION));
             $exts_ok = ['jpg','jpeg','png','webp','gif'];
             if (in_array($ext, $exts_ok) && $_FILES['foto']['size'] <= 5 * 1024 * 1024) {
                 $dir = getenv('STORAGE_PATH') ? getenv('STORAGE_PATH') . '/uploads/devolucao/' : __DIR__ . '/../uploads/devolucao/';
@@ -56,35 +52,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$erro) {
+            // Carrega itens aprovados ainda pendentes de devolução
+            $itens_stmt = $db->prepare("
+                SELECT i.*, m.nome AS mat_nome, m.consumivel
+                FROM itens_solicitacao i
+                JOIN materiais m ON m.id = i.material_id
+                WHERE i.solicitacao_id = ?
+                AND (i.status_item IS NULL OR i.status_item = 'aprovado')
+            ");
+            $itens_stmt->execute([$sol_id]);
+            $itens = $itens_stmt->fetchAll();
+
+            $baixas   = $_POST['baixa_direta'] ?? [];   // [item_id => '1']
+            $qtds_dev = $_POST['qtd_devolver']  ?? [];  // [item_id => qty]
+
             $db->beginTransaction();
             try {
-                // Repõe estoque
-                $upd = $db->prepare("
-                    UPDATE materiais
-                    SET qtd_disponivel = qtd_disponivel + ?
-                    WHERE id = ?
-                ");
                 foreach ($itens as $it) {
-                    $upd->execute([$it['qtd_solicitada'], $it['material_id']]);
+                    $iid = (int)$it['id'];
+                    if ($it['item_fechado'] || $it['qtd_devolvida'] >= $it['qtd_solicitada']) continue;
+
+                    if (array_key_exists($iid, $baixas)) {
+                        // Baixa direta: consumido, sem reposição de estoque
+                        $db->prepare("UPDATE itens_solicitacao SET item_fechado = 1 WHERE id = ?")->execute([$iid]);
+                    } elseif (isset($qtds_dev[$iid]) && (int)$qtds_dev[$iid] > 0) {
+                        $restante = $it['qtd_solicitada'] - $it['qtd_devolvida'];
+                        $qtd      = min((int)$qtds_dev[$iid], $restante);
+                        if ($qtd > 0) {
+                            $db->prepare("UPDATE materiais SET qtd_disponivel = qtd_disponivel + ? WHERE id = ?")
+                               ->execute([$qtd, $it['material_id']]);
+                            $db->prepare("UPDATE itens_solicitacao SET qtd_devolvida = qtd_devolvida + ? WHERE id = ?")
+                               ->execute([$qtd, $iid]);
+                        }
+                    }
                 }
 
-                // Garante que disponível não passa do total (segurança)
+                // Garante que disponível não passa do total
                 $db->exec("UPDATE materiais SET qtd_disponivel = qtd_total WHERE qtd_disponivel > qtd_total");
 
-                // Atualiza status
-                $db->prepare("UPDATE solicitacoes SET status = 'devolvida' WHERE id = ?")
-                   ->execute([$sol_id]);
+                // Verifica se todos os itens aprovados estão concluídos
+                $pendentes = $db->prepare("
+                    SELECT COUNT(*) FROM itens_solicitacao
+                    WHERE solicitacao_id = ?
+                    AND (status_item IS NULL OR status_item = 'aprovado')
+                    AND item_fechado = 0
+                    AND qtd_devolvida < qtd_solicitada
+                ");
+                $pendentes->execute([$sol_id]);
+                $tudo_pronto = ($pendentes->fetchColumn() == 0);
 
-                // Registra movimentação com foto
+                if ($tudo_pronto) {
+                    $db->prepare("UPDATE solicitacoes SET status = 'devolvida' WHERE id = ?")->execute([$sol_id]);
+                    $db->prepare("UPDATE cobrancas SET status='quitada', observacao='Devolvido' WHERE solicitacao_id=? AND status='pendente'")->execute([$sol_id]);
+                }
+
+                // Registra movimentação
                 $db->prepare("INSERT INTO movimentacoes (solicitacao_id, tipo, usuario_id, observacao, foto_path) VALUES (?, 'devolucao', ?, ?, ?)")
                    ->execute([$sol_id, $uid, $obs ?: null, $foto_path]);
 
-                // Quita cobrança automática se existir
-                $db->prepare("UPDATE cobrancas SET status='quitada', observacao='Devolvido após cobrança' WHERE solicitacao_id=? AND status='pendente'")
-                   ->execute([$sol_id]);
-
                 $db->commit();
-                $msg = "Devolução confirmada para solicitação #" . str_pad($sol_id, 4, '0', STR_PAD_LEFT) . ". Estoque reposto.";
+                $n   = str_pad($sol_id, 4, '0', STR_PAD_LEFT);
+                $msg = $tudo_pronto
+                    ? "Devolução concluída para a solicitação #$n. Estoque reposto."
+                    : "Devolução parcial registrada para #$n. Solicitação permanece em aberto.";
             } catch (Exception $e) {
                 $db->rollBack();
                 $erro = 'Erro ao registrar devolução. Tente novamente.';
@@ -172,10 +202,11 @@ if ($retiradas) {
     $ids = array_column($retiradas, 'id');
     $ph  = implode(',', array_fill(0, count($ids), '?'));
     $raw = $db->prepare("
-        SELECT i.*, m.nome AS mat_nome, m.codigo, m.unidade, m.tipo AS mat_tipo
+        SELECT i.*, m.nome AS mat_nome, m.codigo, m.unidade, m.tipo AS mat_tipo, m.consumivel
         FROM itens_solicitacao i
         JOIN materiais m ON m.id = i.material_id
         WHERE i.solicitacao_id IN ($ph)
+        AND (i.status_item IS NULL OR i.status_item = 'aprovado')
     ");
     $raw->execute($ids);
     foreach ($raw->fetchAll() as $item) {
@@ -262,55 +293,86 @@ require_once __DIR__ . '/../includes/header.php';
             <div id="detalhe-<?= $sol['id'] ?>" style="display:none;border-top:1px solid var(--border)">
               <div style="padding:20px">
 
-                <!-- Itens -->
-                <p style="font-size:10px;font-family:var(--mono);color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">Itens a Devolver</p>
-                <div class="table-wrap" style="margin-bottom:16px">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Material</th>
-                        <th>Tipo</th>
-                        <th>Cód.</th>
-                        <th style="text-align:center">Qtd.</th>
-                        <th>Un.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <?php foreach ($itens as $it):
-                        $ferr = ($it['mat_tipo'] ?? 'material') === 'ferramenta';
-                      ?>
-                      <tr <?= $ferr ? 'style="background:rgba(255,170,0,.04)"' : '' ?>>
-                        <td style="font-size:13px"><?= htmlspecialchars($it['mat_nome']) ?></td>
-                        <td>
-                          <?php if ($ferr): ?>
-                            <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:rgba(255,170,0,.12);color:var(--warning);border:1px solid var(--warning);white-space:nowrap">Ferramenta</span>
-                          <?php else: ?>
-                            <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent)">Material</span>
-                          <?php endif; ?>
-                        </td>
-                        <td class="mono" style="font-size:11px;color:var(--text-muted)"><?= htmlspecialchars($it['codigo']) ?></td>
-                        <td style="text-align:center;font-weight:700"><?= (int)$it['qtd_solicitada'] ?></td>
-                        <td class="mono" style="font-size:11px"><?= htmlspecialchars($it['unidade']) ?></td>
-                      </tr>
-                      <?php endforeach; ?>
-                    </tbody>
-                  </table>
-                </div>
+                <!-- Itens com devolução parcial -->
+                <p style="font-size:10px;font-family:var(--mono);color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">Itens — Informe quantidades a devolver</p>
 
-                <!-- Formulário de conferência -->
-                <div style="background:var(--success-dim);border:1px solid var(--success);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px">
-                  <p style="font-size:12px;color:var(--success);font-weight:600">
-                    ✓ Confira se todos os materiais foram devolvidos em bom estado antes de confirmar.
-                  </p>
-                </div>
-
-                <form method="POST" action="/admin/devolucao.php" enctype="multipart/form-data"
-                      onsubmit="return confirm('Confirmar devolução de <?= htmlspecialchars(addslashes($sol['aluno_nome'])) ?>? O estoque será reposto.')">
+                <form method="POST" action="/admin/devolucao.php" enctype="multipart/form-data">
                   <?= csrf_field() ?>
                   <input type="hidden" name="sol_id" value="<?= $sol['id'] ?>" />
+
+                  <div class="table-wrap" style="margin-bottom:14px">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Material</th>
+                          <th>Tipo</th>
+                          <th style="text-align:center">Retirado</th>
+                          <th style="text-align:center">Já devolvido</th>
+                          <th>Devolver agora / Baixa direta</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <?php foreach ($itens as $it):
+                          $ferr       = ($it['mat_tipo'] ?? 'material') === 'ferramenta';
+                          $consumivel = (int)($it['consumivel'] ?? 1);
+                          $restante   = (int)$it['qtd_solicitada'] - (int)$it['qtd_devolvida'];
+                          $concluido  = $it['item_fechado'] || $restante <= 0;
+                        ?>
+                        <tr style="<?= $concluido ? 'opacity:.55' : '' ?><?= $ferr && !$concluido ? ';background:rgba(255,170,0,.04)' : '' ?>">
+                          <td style="font-size:13px"><?= htmlspecialchars($it['mat_nome']) ?></td>
+                          <td>
+                            <?php if ($ferr): ?>
+                              <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:rgba(255,170,0,.12);color:var(--warning);border:1px solid var(--warning);white-space:nowrap">Ferramenta</span>
+                            <?php else: ?>
+                              <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent)">Material</span>
+                            <?php endif; ?>
+                            <?php if ($consumivel): ?>
+                              <br><span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(0,200,100,.1);color:var(--success);border:1px solid var(--success)">Consumível</span>
+                            <?php endif; ?>
+                          </td>
+                          <td style="text-align:center;font-weight:700"><?= (int)$it['qtd_solicitada'] ?> <?= htmlspecialchars($it['unidade']) ?></td>
+                          <td style="text-align:center;color:var(--success)"><?= (int)$it['qtd_devolvida'] ?></td>
+                          <td>
+                            <?php if ($concluido): ?>
+                              <span style="font-size:11px;color:var(--success);font-weight:600">
+                                <?= $it['item_fechado'] ? '✓ Baixa direta' : '✓ Devolvido' ?>
+                              </span>
+                            <?php elseif ($consumivel): ?>
+                              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;margin-bottom:6px">
+                                <input type="checkbox" name="baixa_direta[<?= $it['id'] ?>]" value="1"
+                                       onchange="toggleQtdInput(this, 'qtd-<?= $it['id'] ?>')" />
+                                Baixa direta (consumido)
+                              </label>
+                              <div id="qtd-<?= $it['id'] ?>" style="display:flex;align-items:center;gap:6px">
+                                <input type="number" name="qtd_devolver[<?= $it['id'] ?>]"
+                                       min="0" max="<?= $restante ?>" value="0"
+                                       style="width:70px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px" />
+                                <span style="font-size:11px;color:var(--text-muted)">máx. <?= $restante ?></span>
+                              </div>
+                            <?php else: ?>
+                              <div style="display:flex;align-items:center;gap:6px">
+                                <input type="number" name="qtd_devolver[<?= $it['id'] ?>]"
+                                       min="0" max="<?= $restante ?>" value="<?= $restante ?>"
+                                       style="width:70px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px" />
+                                <span style="font-size:11px;color:var(--text-muted)">máx. <?= $restante ?></span>
+                              </div>
+                            <?php endif; ?>
+                          </td>
+                        </tr>
+                        <?php endforeach; ?>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style="background:var(--success-dim);border:1px solid var(--success);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px">
+                    <p style="font-size:12px;color:var(--success);font-weight:600">
+                      ✓ Devolução parcial é permitida. Informe 0 nos itens que ainda não foram devolvidos — a solicitação permanecerá em aberto.
+                    </p>
+                  </div>
+
                   <div class="field">
                     <label class="field-label">Observação da conferência (opcional)</label>
-                    <textarea name="observacao" placeholder="Ex: Todos os itens devolvidos em bom estado. Sem avarias..." style="min-height:70px"></textarea>
+                    <textarea name="observacao" placeholder="Ex: 5 parafusos devolvidos, 3 consumidos no projeto..." style="min-height:60px"></textarea>
                   </div>
                   <div class="field">
                     <label class="field-label">Foto da conferência (opcional)</label>
@@ -323,7 +385,7 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                   </div>
                   <button type="submit" class="btn btn-success w-full" style="justify-content:center">
-                    ✓ Confirmar Devolução e Repor Estoque
+                    ✓ Registrar Devolução
                   </button>
                 </form>
 
@@ -447,6 +509,18 @@ function toggleSol(id) {
   const aberto = det.style.display !== 'none';
   det.style.display = aberto ? 'none' : 'block';
   ch.textContent   = aberto ? '▼' : '▲';
+}
+
+function toggleQtdInput(checkbox, divId) {
+  const div = document.getElementById(divId);
+  if (!div) return;
+  if (checkbox.checked) {
+    div.style.display = 'none';
+    const inp = div.querySelector('input[type=number]');
+    if (inp) inp.value = 0;
+  } else {
+    div.style.display = 'flex';
+  }
 }
 function toggleCob(id) {
   const el = document.getElementById('cob-form-' + id);

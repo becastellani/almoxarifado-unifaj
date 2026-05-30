@@ -1,5 +1,7 @@
 <?php
 
+date_default_timezone_set('America/Sao_Paulo');
+
 define('DB_PATH', getenv('STORAGE_PATH') ? getenv('STORAGE_PATH') . '/almoxarifado.db' : __DIR__ . '/database/almoxarifado.db');
 
 function get_db(): PDO {
@@ -84,10 +86,22 @@ function criar_schema(PDO $pdo): void {
 
     // Migrações: colunas adicionadas em versões posteriores
     foreach ([
-        "ALTER TABLE materiais    ADD COLUMN tipo      TEXT NOT NULL DEFAULT 'material'",
-        "ALTER TABLE movimentacoes ADD COLUMN foto_path TEXT",
+        "ALTER TABLE materiais      ADD COLUMN tipo                   TEXT    NOT NULL DEFAULT 'material'",
+        "ALTER TABLE materiais      ADD COLUMN consumivel              INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE movimentacoes  ADD COLUMN foto_path              TEXT",
+        "ALTER TABLE solicitacoes   ADD COLUMN observacao_requisitante TEXT",
+        "ALTER TABLE itens_solicitacao ADD COLUMN qtd_devolvida       INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE itens_solicitacao ADD COLUMN item_fechado        INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE itens_solicitacao ADD COLUMN status_item         TEXT",
+        "ALTER TABLE itens_solicitacao ADD COLUMN motivo_recusa       TEXT",
     ] as $migration) {
         try { $pdo->exec($migration); } catch (PDOException) { /* já existe */ }
+    }
+
+    // Inicializa consumivel=0 para ferramentas (única vez)
+    $tem_ferr0 = $pdo->query("SELECT COUNT(*) FROM materiais WHERE tipo='ferramenta' AND consumivel=0")->fetchColumn();
+    if (!$tem_ferr0) {
+        try { $pdo->exec("UPDATE materiais SET consumivel=0 WHERE tipo='ferramenta'"); } catch (PDOException) {}
     }
 
     // Seed: admin padrão se não existir

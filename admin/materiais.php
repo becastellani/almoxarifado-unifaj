@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../includes/auth.php';
 requer_admin();
@@ -21,13 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verificar_csrf();
 
     if ($acao === 'criar' || $acao === 'editar') {
-        $codigo = strtoupper(trim($_POST['codigo'] ?? ''));
-        $nome   = trim($_POST['nome']   ?? '');
-        $desc   = trim($_POST['descricao'] ?? '');
-        $unid   = trim($_POST['unidade']   ?? 'UN');
-        $tipo   = in_array($_POST['tipo'] ?? '', ['material', 'ferramenta']) ? $_POST['tipo'] : 'material';
-        $qtd_t  = max(0, (int)($_POST['qtd_total']      ?? 0));
-        $qtd_d  = max(0, (int)($_POST['qtd_disponivel'] ?? 0));
+        $codigo     = strtoupper(trim($_POST['codigo'] ?? ''));
+        $nome       = trim($_POST['nome']   ?? '');
+        $desc       = trim($_POST['descricao'] ?? '');
+        $unid       = trim($_POST['unidade']   ?? 'UN');
+        $tipo       = in_array($_POST['tipo'] ?? '', ['material', 'ferramenta']) ? $_POST['tipo'] : 'material';
+        $consumivel = isset($_POST['consumivel']) ? 1 : 0;
+        $qtd_t      = max(0, (int)($_POST['qtd_total']      ?? 0));
+        $qtd_d      = max(0, (int)($_POST['qtd_disponivel'] ?? 0));
 
         if (!$codigo || !$nome) {
             $erro = 'Código e nome são obrigatórios.';
@@ -40,8 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($chk->fetch()) {
                     $erro = "Código \"$codigo\" já existe.";
                 } else {
-                    $db->prepare("INSERT INTO materiais (codigo, nome, descricao, unidade, tipo, qtd_total, qtd_disponivel) VALUES (?,?,?,?,?,?,?)")
-                       ->execute([$codigo, $nome, $desc, $unid, $tipo, $qtd_t, $qtd_d]);
+                    $db->prepare("INSERT INTO materiais (codigo, nome, descricao, unidade, tipo, consumivel, qtd_total, qtd_disponivel) VALUES (?,?,?,?,?,?,?,?)")
+                       ->execute([$codigo, $nome, $desc, $unid, $tipo, $consumivel, $qtd_t, $qtd_d]);
                     $_SESSION['flash_ok'] = "Material \"$nome\" cadastrado com sucesso.";
                     header('Location: /admin/materiais.php');
                     exit;
@@ -53,8 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($chk->fetch()) {
                     $erro = "Código \"$codigo\" já existe em outro material.";
                 } else {
-                    $db->prepare("UPDATE materiais SET codigo=?, nome=?, descricao=?, unidade=?, tipo=?, qtd_total=?, qtd_disponivel=? WHERE id=?")
-                       ->execute([$codigo, $nome, $desc, $unid, $tipo, $qtd_t, $qtd_d, $id]);
+                    $db->prepare("UPDATE materiais SET codigo=?, nome=?, descricao=?, unidade=?, tipo=?, consumivel=?, qtd_total=?, qtd_disponivel=? WHERE id=?")
+                       ->execute([$codigo, $nome, $desc, $unid, $tipo, $consumivel, $qtd_t, $qtd_d, $id]);
                     $_SESSION['flash_ok'] = "Material \"$nome\" atualizado com sucesso.";
                     header('Location: /admin/materiais.php');
                     exit;
@@ -78,12 +79,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// --- BUSCA ---
+// --- BUSCA E ORDENAÇÃO ---
 $busca = trim($_GET['q'] ?? '');
-$filtro_sql = $busca ? "WHERE nome LIKE ? OR codigo LIKE ?" : "";
-$params = $busca ? ["%$busca%", "%$busca%"] : [];
+$ordem_validas = ['nome' => 'nome', 'qtd_disponivel' => 'qtd_disponivel', 'tipo' => 'tipo'];
+$ordem = array_key_exists($_GET['ordem'] ?? '', $ordem_validas) ? $ordem_validas[$_GET['ordem']] : 'nome';
+$dir   = ($_GET['dir'] ?? 'asc') === 'desc' ? 'DESC' : 'ASC';
 
-$materiais = $db->prepare("SELECT * FROM materiais $filtro_sql ORDER BY nome ASC");
+$filtro_sql = $busca ? "WHERE nome LIKE ? OR codigo LIKE ?" : "";
+$params     = $busca ? ["%$busca%", "%$busca%"] : [];
+
+$materiais = $db->prepare("SELECT * FROM materiais $filtro_sql ORDER BY $ordem $dir");
 $materiais->execute($params);
 $materiais = $materiais->fetchAll();
 
@@ -129,13 +134,26 @@ require_once __DIR__ . '/../includes/header.php';
           <div class="radio-group">
             <label class="radio-option" style="<?= $tipo_atual === 'material' ? 'border-color:var(--accent);background:var(--accent-dim)' : '' ?>">
               <input type="radio" name="tipo" value="material" <?= $tipo_atual === 'material' ? 'checked' : '' ?> onchange="atualizarTipo(this)" />
-              <span class="radio-label"><span class="dot"></span>Material (consumo)</span>
+              <span class="radio-label"><span class="dot"></span>Material</span>
             </label>
             <label class="radio-option" style="<?= $tipo_atual === 'ferramenta' ? 'border-color:var(--warning);background:rgba(255,170,0,.08)' : '' ?>">
               <input type="radio" name="tipo" value="ferramenta" <?= $tipo_atual === 'ferramenta' ? 'checked' : '' ?> onchange="atualizarTipo(this)" />
               <span class="radio-label"><span class="dot"></span>Ferramentaria (devolução até 22h)</span>
             </label>
           </div>
+        </div>
+
+        <?php
+          $consumivel_atual = isset($_POST['consumivel'])
+            ? (int)!!$_POST['consumivel']
+            : (isset($editando['consumivel']) ? (int)$editando['consumivel'] : 1);
+        ?>
+        <div class="field">
+          <label class="field-label">Opções</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" name="consumivel" value="1" <?= $consumivel_atual ? 'checked' : '' ?> id="chkConsumivel" />
+            <span>Item de consumo <span style="color:var(--text-muted);font-size:12px">(baixa direta, sem devolução obrigatória)</span></span>
+          </label>
         </div>
 
         <div class="field-row">
@@ -196,6 +214,8 @@ require_once __DIR__ . '/../includes/header.php';
 
       <!-- Busca -->
       <form method="GET" action="/admin/materiais.php" style="display:flex;gap:8px">
+        <input type="hidden" name="ordem" value="<?= htmlspecialchars($ordem) ?>" />
+        <input type="hidden" name="dir"   value="<?= htmlspecialchars(strtolower($dir)) ?>" />
         <input type="text" name="q" placeholder="Buscar por nome ou código..."
                value="<?= htmlspecialchars($busca) ?>" style="flex:1" />
         <button type="submit" class="btn btn-secondary">Buscar</button>
@@ -208,13 +228,21 @@ require_once __DIR__ . '/../includes/header.php';
       <div class="card" style="padding:0;overflow:hidden">
         <div class="table-wrap" style="border:none;border-radius:0">
           <table>
+            <?php
+              function sortLink(string $col, string $label, string $ordem_atual, string $dir_atual, string $busca): string {
+                $novo_dir = ($ordem_atual === $col && $dir_atual === 'ASC') ? 'desc' : 'asc';
+                $icone    = $ordem_atual === $col ? ($dir_atual === 'ASC' ? ' ↑' : ' ↓') : '';
+                $q        = $busca ? '&q=' . urlencode($busca) : '';
+                return "<a href=\"/admin/materiais.php?ordem={$col}&dir={$novo_dir}{$q}\" style=\"color:inherit;text-decoration:none;white-space:nowrap\">{$label}{$icone}</a>";
+              }
+            ?>
             <thead>
               <tr>
-                <th>Material</th>
-                <th>Tipo</th>
+                <th><?= sortLink('nome', 'Material', $ordem, $dir, $busca) ?></th>
+                <th><?= sortLink('tipo', 'Tipo', $ordem, $dir, $busca) ?></th>
                 <th>Cód.</th>
                 <th>Un.</th>
-                <th style="text-align:center">Disp.</th>
+                <th style="text-align:center"><?= sortLink('qtd_disponivel', 'Disp.', $ordem, $dir, $busca) ?></th>
                 <th style="text-align:center">Total</th>
                 <th></th>
               </tr>
@@ -241,6 +269,9 @@ require_once __DIR__ . '/../includes/header.php';
                       <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(255,170,0,.12);color:var(--warning);border:1px solid var(--warning);white-space:nowrap">Ferramentaria</span>
                     <?php else: ?>
                       <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent);white-space:nowrap">Material</span>
+                    <?php endif; ?>
+                    <?php if ($m['consumivel'] ?? 1): ?>
+                      <br><span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(0,200,100,.1);color:var(--success);border:1px solid var(--success);white-space:nowrap">Consumível</span>
                     <?php endif; ?>
                   </td>
                   <td class="mono" style="font-size:11px;color:var(--text-muted)"><?= htmlspecialchars($m['codigo']) ?></td>

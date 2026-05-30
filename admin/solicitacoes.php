@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../includes/auth.php';
 requer_admin();
@@ -21,11 +21,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$sol) {
         $erro = 'Solicitação não encontrada.';
+
+    } elseif ($acao === 'aprovar_itens' && $sol['status'] === 'pendente') {
+        $todos_ids = array_map('intval', $_POST['todos_ids'] ?? []);
+        $aprovados = array_map('intval', $_POST['aprovados'] ?? []);
+        $motivos   = $_POST['motivo'] ?? [];
+
+        if (empty($todos_ids)) {
+            $erro = 'Nenhum item encontrado na solicitação.';
+        } else {
+            $upd = $db->prepare("UPDATE itens_solicitacao SET status_item = ?, motivo_recusa = ? WHERE id = ? AND solicitacao_id = ?");
+            $algum_aprovado = false;
+            foreach ($todos_ids as $item_id) {
+                $st = in_array($item_id, $aprovados) ? 'aprovado' : 'recusado';
+                $mo = ($st === 'recusado') ? (trim($motivos[$item_id] ?? '') ?: null) : null;
+                $upd->execute([$st, $mo, $item_id, $sol_id]);
+                if ($st === 'aprovado') $algum_aprovado = true;
+            }
+            $novo_status = $algum_aprovado ? 'aprovada' : 'rejeitada';
+            $db->prepare("UPDATE solicitacoes SET status = ? WHERE id = ?")->execute([$novo_status, $sol_id]);
+            $n = str_pad($sol_id, 4, '0', STR_PAD_LEFT);
+            if (!$algum_aprovado) {
+                $msg = "Solicitação #$n rejeitada (todos os itens recusados).";
+            } elseif (count($aprovados) < count($todos_ids)) {
+                $msg = "Solicitação #$n aprovada parcialmente (" . (count($todos_ids) - count($aprovados)) . " item(ns) recusado(s)).";
+            } else {
+                $msg = "Solicitação #$n aprovada com todos os itens.";
+            }
+        }
+
     } elseif ($acao === 'aprovar' && $sol['status'] === 'pendente') {
+        $db->prepare("UPDATE itens_solicitacao SET status_item = 'aprovado' WHERE solicitacao_id = ?")->execute([$sol_id]);
         $db->prepare("UPDATE solicitacoes SET status = 'aprovada' WHERE id = ?")->execute([$sol_id]);
         $msg = "Solicitação #" . str_pad($sol_id, 4, '0', STR_PAD_LEFT) . " aprovada.";
 
     } elseif ($acao === 'rejeitar' && $sol['status'] === 'pendente') {
+        $db->prepare("UPDATE itens_solicitacao SET status_item = 'recusado' WHERE solicitacao_id = ?")->execute([$sol_id]);
         $db->prepare("UPDATE solicitacoes SET status = 'rejeitada' WHERE id = ?")->execute([$sol_id]);
         $msg = "Solicitação #" . str_pad($sol_id, 4, '0', STR_PAD_LEFT) . " rejeitada.";
     }
@@ -213,6 +244,12 @@ require_once __DIR__ . '/../includes/header.php';
               <p style="font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px"><?= htmlspecialchars($sol['justificativa']) ?></p>
             </div>
             <?php endif; ?>
+            <?php if (!empty($sol['observacao_requisitante'])): ?>
+            <div>
+              <p style="font-size:10px;font-family:var(--mono);color:var(--warning);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Observação do requisitante</p>
+              <p style="font-size:13px;background:rgba(255,170,0,.06);border:1px solid var(--warning);border-radius:var(--radius-sm);padding:10px"><?= htmlspecialchars($sol['observacao_requisitante']) ?></p>
+            </div>
+            <?php endif; ?>
 
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
               <?php if ($sol['local_entrega']): ?>
@@ -229,25 +266,68 @@ require_once __DIR__ . '/../includes/header.php';
               <?php endif; ?>
             </div>
 
-            <!-- Botões de ação -->
+            <!-- Aprovação por item -->
             <?php if ($sol['status'] === 'pendente'): ?>
-            <div style="display:flex;gap:10px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)">
-              <form method="POST" action="/admin/solicitacoes.php?status=<?= urlencode($filtro_status) ?>" style="flex:1">
+            <div style="padding-top:10px;border-top:1px solid var(--border)">
+              <p style="font-size:10px;font-family:var(--mono);color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">
+                Selecionar itens para aprovar
+              </p>
+              <form method="POST" action="/admin/solicitacoes.php?status=<?= urlencode($filtro_status) ?>">
                 <?= csrf_field() ?>
-                <input type="hidden" name="acao"   value="aprovar" />
+                <input type="hidden" name="acao"   value="aprovar_itens" />
                 <input type="hidden" name="sol_id" value="<?= $sol['id'] ?>" />
-                <button type="submit" class="btn btn-success w-full" style="justify-content:center">
-                  ✓ Aprovar
-                </button>
-              </form>
-              <form method="POST" action="/admin/solicitacoes.php?status=<?= urlencode($filtro_status) ?>"
-                    onsubmit="return confirm('Rejeitar esta solicitação?')" style="flex:1">
-                <?= csrf_field() ?>
-                <input type="hidden" name="acao"   value="rejeitar" />
-                <input type="hidden" name="sol_id" value="<?= $sol['id'] ?>" />
-                <button type="submit" class="btn btn-danger w-full" style="justify-content:center">
-                  ✕ Rejeitar
-                </button>
+
+                <div class="table-wrap" style="margin-bottom:10px">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style="width:32px">
+                          <input type="checkbox" title="Marcar todos"
+                                 onchange="toggleAllItens(this, <?= $sol['id'] ?>)" checked />
+                        </th>
+                        <th>Material</th>
+                        <th style="text-align:center">Qtd.</th>
+                        <th>Motivo recusa <span style="font-weight:400;color:var(--text-muted)">(se recusado)</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <?php foreach ($itens as $it):
+                        $sem = $it['qtd_disponivel'] < $it['qtd_solicitada'];
+                      ?>
+                      <tr <?= $sem ? 'style="background:var(--danger-dim)"' : '' ?>>
+                        <td>
+                          <input type="hidden" name="todos_ids[]" value="<?= $it['id'] ?>" />
+                          <input type="checkbox" name="aprovados[]" value="<?= $it['id'] ?>"
+                                 class="item-check-<?= $sol['id'] ?>" checked />
+                        </td>
+                        <td style="font-size:12px">
+                          <?= htmlspecialchars($it['mat_nome']) ?>
+                          <?= $sem ? '<br><small style="color:var(--danger);font-size:10px">ESTOQUE INSUFICIENTE</small>' : '' ?>
+                        </td>
+                        <td style="text-align:center;font-weight:700;font-size:12px">
+                          <?= (int)$it['qtd_solicitada'] ?> <?= htmlspecialchars($it['unidade']) ?>
+                        </td>
+                        <td>
+                          <input type="text" name="motivo[<?= $it['id'] ?>]"
+                                 placeholder="Motivo..."
+                                 style="font-size:11px;padding:4px 8px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text)" />
+                        </td>
+                      </tr>
+                      <?php endforeach; ?>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style="display:flex;gap:8px">
+                  <button type="submit" class="btn btn-success" style="flex:1;justify-content:center">
+                    ✓ Confirmar Aprovação
+                  </button>
+                  <button type="button" class="btn btn-danger btn-xs"
+                          onclick="rejeitarTudoSol(<?= $sol['id'] ?>, this)"
+                          title="Rejeitar toda a solicitação">
+                    ✕ Tudo
+                  </button>
+                </div>
               </form>
             </div>
             <?php else: ?>
@@ -287,6 +367,16 @@ function toggleSol(id) {
   const aberto = det.style.display !== 'none';
   det.style.display = aberto ? 'none' : 'block';
   ch.textContent   = aberto ? '▼' : '▲';
+}
+
+function toggleAllItens(master, solId) {
+  document.querySelectorAll('.item-check-' + solId).forEach(cb => { cb.checked = master.checked; });
+}
+
+function rejeitarTudoSol(solId, btn) {
+  const form = btn.closest('form');
+  document.querySelectorAll('.item-check-' + solId).forEach(cb => { cb.checked = false; });
+  if (confirm('Rejeitar TODOS os itens desta solicitação?')) form.submit();
 }
 
 // Abre automaticamente se veio via ?id=

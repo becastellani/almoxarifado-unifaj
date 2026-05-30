@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../includes/auth.php';
 requer_admin();
@@ -31,8 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = "Solicitação #" . str_pad($sol_id, 4, '0', STR_PAD_LEFT) . " marcada como separada.";
 
     } elseif ($acao === 'retirar' && $sol['status'] === 'separada') {
-        // Busca itens
-        $itens = $db->prepare("SELECT * FROM itens_solicitacao WHERE solicitacao_id = ?");
+        // Retirada exclusiva pelo almoxarifado (admin)
+        if ($_SESSION['papel'] !== 'admin') {
+            $erro = 'Apenas o almoxarifado pode confirmar a retirada.';
+            goto fim_acao;
+        }
+
+        // Busca apenas itens aprovados
+        $itens = $db->prepare("SELECT * FROM itens_solicitacao WHERE solicitacao_id = ? AND (status_item IS NULL OR status_item = 'aprovado')");
         $itens->execute([$sol_id]);
         $itens = $itens->fetchAll();
 
@@ -72,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+    fim_acao:
 }
 
 // --- CARREGA DADOS ---
@@ -112,6 +119,7 @@ if ($todos_ids) {
         FROM itens_solicitacao i
         JOIN materiais m ON m.id = i.material_id
         WHERE i.solicitacao_id IN ($ph)
+        AND (i.status_item IS NULL OR i.status_item = 'aprovado')
     ");
     $raw->execute($todos_ids);
     foreach ($raw->fetchAll() as $item) {

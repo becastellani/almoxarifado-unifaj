@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/db.php';
 
 if (!empty($_SESSION['usuario_id'])) {

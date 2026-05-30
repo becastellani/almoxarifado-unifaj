@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../includes/auth.php';
 requer_aluno();
@@ -15,10 +15,11 @@ $sucesso = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verificar_csrf();
-    $urgencia       = in_array($_POST['urgencia'] ?? '', ['baixa', 'media', 'alta']) ? $_POST['urgencia'] : 'media';
-    $justificativa  = trim($_POST['justificativa']  ?? '');
-    $local_entrega  = trim($_POST['local_entrega']  ?? '');
-    $data_necessaria= $_POST['data_necessaria'] ?? null;
+    $urgencia            = in_array($_POST['urgencia'] ?? '', ['baixa', 'media', 'alta']) ? $_POST['urgencia'] : 'media';
+    $justificativa       = trim($_POST['justificativa']       ?? '');
+    $local_entrega       = trim($_POST['local_entrega']       ?? '');
+    $data_necessaria     = $_POST['data_necessaria']          ?? null;
+    $obs_requisitante    = trim($_POST['observacao_requisitante'] ?? '');
     $material_ids   = $_POST['material_id']     ?? [];
     $quantidades    = $_POST['quantidade']      ?? [];
 
@@ -52,9 +53,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $db->beginTransaction();
         try {
             $db->prepare("
-                INSERT INTO solicitacoes (usuario_id, status, urgencia, justificativa, local_entrega, data_necessaria)
-                VALUES (?, 'pendente', ?, ?, ?, ?)
-            ")->execute([$uid, $urgencia, $justificativa, $local_entrega ?: null, $data_necessaria ?: null]);
+                INSERT INTO solicitacoes (usuario_id, status, urgencia, justificativa, local_entrega, data_necessaria, observacao_requisitante)
+                VALUES (?, 'pendente', ?, ?, ?, ?, ?)
+            ")->execute([$uid, $urgencia, $justificativa, $local_entrega ?: null, $data_necessaria ?: null, $obs_requisitante ?: null]);
 
             $sol_id = $db->lastInsertId();
 
@@ -254,6 +255,11 @@ window.MATERIAIS = <?= json_encode(array_map(fn($m) => [
         <div class="field">
           <label class="field-label">Justificativa / Uso Previsto</label>
           <textarea name="justificativa" placeholder="Descreva a finalidade dos materiais, projeto relacionado ou qualquer informação útil ao almoxarife..."><?= htmlspecialchars($_POST['justificativa'] ?? '') ?></textarea>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Observações adicionais</label>
+          <textarea name="observacao_requisitante" placeholder="Informe se algum item já foi encontrado danificado, com defeito, ou qualquer outra observação relevante..."><?= htmlspecialchars($_POST['observacao_requisitante'] ?? '') ?></textarea>
         </div>
 
         <div class="field-row">
